@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ultimate Paint & Animation App</title>
+    <link
+      rel="icon"
+      type="image/png"
+      href="https://sdmntprsouthcentralus.oaiusercontent.com/files/00000000-bbf0-61f7-b6fc-3ca5d9265678/raw?se=2025-09-12T11%3A51%3A13Z&sp=r&sv=2024-08-04&sr=b&scid=10021338-40a7-549f-ab08-4a333c223089&skoid=5939c452-ea83-4420-b5b4-21182254a5d3&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2025-09-11T22%3A42%3A34Z&ske=2025-09-12T22%3A42%3A34Z&sks=b&skv=2024-08-04&sig=LutqQ10gfJ3ytwHtrRtqkyYQeANgSQJKopp5VGR1WRw%3D"
+    />
+
+    <style>
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        background: #f5f5f5;
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+      }
+      h1 {
+        margin: 15px 0;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: center;
+        margin: 10px;
+      }
+      button,
+      input,
+      select {
+        padding: 8px 12px;
+        font-size: 14px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      button {
+        background: #333;
+        color: white;
+      }
+      button:hover {
+        background: #555;
+      }
+      select,
+      input[type="color"] {
+        background: #fff;
+        border: 1px solid #333;
+      }
+      canvas {
+        border: 2px solid #333;
+        background: #fff;
+        margin: 15px;
+        cursor: crosshair;
+        touch-action: none;
+        max-width: 95vw;
+        max-height: 70vh;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🎨 Ultimate Paint & Animation App</h1>
+
+    <div class="toolbar">
+      <label
+        >Brush: <input type="color" id="colorPicker" value="#000000"
+      /></label>
+      <label
+        >Size: <input type="range" id="brushSize" min="1" max="50" value="5"
+      /></label>
+      <label
+        >Tool:
+        <select id="tool">
+          <option value="pen">✏️ Pen</option>
+          <option value="line">📏 Line</option>
+          <option value="rect">▭ Rectangle</option>
+          <option value="circle">⚪ Circle</option>
+          <option value="triangle">🔺 Triangle</option>
+          <option value="pentagon">⬟ Pentagon</option>
+          <option value="hexagon">⬢ Hexagon</option>
+          <option value="eraser">🧽 Eraser</option>
+          <option value="text">🔤 Text</option>
+          <option value="rainbow">🌈 Rainbow Pen</option>
+          <option value="movingLine">➡️ Moving Line</option>
+          <option value="movingText">🔤 Moving Text</option>
+          <option value="rainbowBg">🌈 Rainbow Background</option>
+        </select>
+      </label>
+      <button onclick="undo()">⬅️ Undo</button>
+      <button onclick="redo()">➡️ Redo</button>
+      <button onclick="clearCanvas()">Clear</button>
+      <button onclick="newPage()">🆕 New Page</button>
+      <button onclick="saveImage()">Save PNG</button>
+      <button onclick="startGifRecording()">🎬 Record GIF</button>
+      <label
+        >Background: <input type="color" id="bgColor" value="#ffffff"
+      /></label>
+      <input type="file" id="imageLoader" accept="image/*" />
+    </div>
+
+    <canvas id="canvas" width="800" height="500"></canvas>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.min.js"></script>
+    <script>
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+
+      let painting = false,
+        brushColor = "#000000",
+        brushSize = 5,
+        tool = "pen";
+      let startX,
+        startY,
+        snapshot,
+        rainbowHue = 0;
+      let undoStack = [],
+        redoStack = [];
+      let animating = false,
+        linePos = 0,
+        textPos = 0,
+        bgHue = 0,
+        movingText = "Hello! Moving Text!";
+      let gif = null,
+        recording = false;
+
+      // ----- Drawing functions -----
+      function saveState() {
+        undoStack.push(canvas.toDataURL());
+        redoStack = [];
+      }
+      function undo() {
+        if (undoStack.length > 0) {
+          redoStack.push(canvas.toDataURL());
+          let img = new Image();
+          img.src = undoStack.pop();
+          img.onload = () => ctx.drawImage(img, 0, 0);
+        }
+      }
+      function redo() {
+        if (redoStack.length > 0) {
+          undoStack.push(canvas.toDataURL());
+          let img = new Image();
+          img.src = redoStack.pop();
+          img.onload = () => ctx.drawImage(img, 0, 0);
+        }
+      }
+      function getMousePos(e) {
+        return { x: e.offsetX, y: e.offsetY };
+      }
+      function getTouchPos(e) {
+        const r = canvas.getBoundingClientRect();
+        return {
+          x: e.touches[0].clientX - r.left,
+          y: e.touches[0].clientY - r.top,
+        };
+      }
+
+      function startPosition(e, isTouch = false) {
+        const pos = isTouch ? getTouchPos(e) : getMousePos(e);
+        startX = pos.x;
+        startY = pos.y;
+        if (tool === "text") {
+          addText(pos);
+          return;
+        }
+        if (
+          tool === "movingLine" ||
+          tool === "movingText" ||
+          tool === "rainbowBg"
+        ) {
+          startAnimation();
+          return;
+        }
+        painting = true;
+        snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        saveState();
+        if (tool === "pen" || tool === "eraser" || tool === "rainbow")
+          ctx.beginPath(), ctx.moveTo(startX, startY);
+      }
+
+      function endPosition() {
+        painting = false;
+        ctx.beginPath();
+      }
+      function draw(e, isTouch = false) {
+        if (!painting) return;
+        const pos = isTouch ? getTouchPos(e) : getMousePos(e);
+        ctx.lineWidth = brushSize;
+        ctx.lineCap = "round";
+        let color = brushColor;
+        if (tool === "rainbow") {
+          rainbowHue = (rainbowHue + 2) % 360;
+          color = `hsl(${rainbowHue},100%,50%)`;
+        }
+
+        if (tool === "pen" || tool === "rainbow") {
+          ctx.strokeStyle = color;
+          ctx.lineTo(pos.x, pos.y);
+          ctx.stroke();
+        } else if (tool === "eraser") {
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineTo(pos.x, pos.y);
+          ctx.stroke();
+        } else {
+          ctx.putImageData(snapshot, 0, 0);
+          let w = pos.x - startX,
+            h = pos.y - startY;
+          ctx.strokeStyle = color;
+          if (tool === "line") {
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
+          } else if (tool === "rect") ctx.strokeRect(startX, startY, w, h);
+          else if (tool === "circle") {
+            let r = Math.sqrt(w * w + h * h);
+            ctx.beginPath();
+            ctx.arc(startX, startY, r, 0, Math.PI * 2);
+            ctx.stroke();
+          } else if (tool === "triangle") {
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(startX + w, startY);
+            ctx.lineTo(startX + w / 2, startY - h);
+            ctx.closePath();
+            ctx.stroke();
+          } else if (tool === "pentagon" || tool === "hexagon")
+            drawPolygon(startX, startY, w, tool === "pentagon" ? 5 : 6);
+        }
+      }
+
+      function drawPolygon(x, y, size, sides) {
+        ctx.beginPath();
+        for (let i = 0; i < sides; i++) {
+          let a = (i * 2 * Math.PI) / sides;
+          let px = x + size * Math.cos(a);
+          let py = y + size * Math.sin(a);
+          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.stroke();
+      }
+      function addText(pos) {
+        let t = prompt("Enter text:");
+        if (t) {
+          ctx.fillStyle = brushColor;
+          ctx.font = `${brushSize * 3}px Arial`;
+          ctx.fillText(t, pos.x, pos.y);
+          saveState();
+        }
+      }
+      function clearCanvas() {
+        saveState();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+      function newPage() {
+        undoStack = [];
+        redoStack = [];
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        linePos = 0;
+        textPos = 0;
+        bgHue = 0;
+        stopAnimation();
+      }
+      function saveImage() {
+        const a = document.createElement("a");
+        a.href = canvas.toDataURL();
+        a.download = "drawing.png";
+        a.click();
+      }
+
+      // ----- Image loader -----
+      document
+        .getElementById("imageLoader")
+        .addEventListener("change", function (e) {
+          const reader = new FileReader();
+          reader.onload = function (ev) {
+            const img = new Image();
+            img.onload = function () {
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              saveState();
+            };
+            img.src = ev.target.result;
+          };
+          reader.readAsDataURL(e.target.files[0]);
+        });
+
+      // ----- Settings -----
+      document
+        .getElementById("bgColor")
+        .addEventListener(
+          "input",
+          (e) => (canvas.style.background = e.target.value)
+        );
+      document
+        .getElementById("colorPicker")
+        .addEventListener("input", (e) => (brushColor = e.target.value));
+      document
+        .getElementById("brushSize")
+        .addEventListener("input", (e) => (brushSize = e.target.value));
+      document.getElementById("tool").addEventListener("change", (e) => {
+        tool = e.target.value;
+        if (
+          tool === "movingLine" ||
+          tool === "movingText" ||
+          tool === "rainbowBg"
+        )
+          startAnimation();
+        else stopAnimation();
+      });
+
+      // ----- Mouse & Touch -----
+      canvas.addEventListener("mousedown", (e) => startPosition(e, false));
+      canvas.addEventListener("mouseup", endPosition);
+      canvas.addEventListener("mousemove", (e) => draw(e, false));
+      canvas.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        startPosition(e, true);
+      });
+      canvas.addEventListener("touchend", endPosition);
+      canvas.addEventListener("touchmove", (e) => {
+        e.preventDefault();
+        draw(e, true);
+      });
+
+      // ----- Animation -----
+      let animationFrame;
+      function startAnimation() {
+        if (animating) return;
+        animating = true;
+        animate();
+      }
+      function stopAnimation() {
+        animating = false;
+        cancelAnimationFrame(animationFrame);
+      }
+
+      function animate() {
+        if (!animating) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (tool === "movingLine") {
+          ctx.strokeStyle = brushColor;
+          ctx.lineWidth = brushSize;
+          ctx.beginPath();
+          ctx.moveTo(linePos, 0);
+          ctx.lineTo(linePos, canvas.height);
+          ctx.stroke();
+          linePos = (linePos + 5) % canvas.width;
+        }
+        if (tool === "movingText") {
+          ctx.fillStyle = brushColor;
+          ctx.font = `${brushSize * 4}px Arial`;
+          ctx.fillText(movingText, textPos, canvas.height / 2);
+          textPos = (textPos + 3) % (canvas.width + 200);
+        }
+        if (tool === "rainbowBg") {
+          bgHue = (bgHue + 2) % 360;
+          canvas.style.background = `hsl(${bgHue},100%,80%)`;
+        }
+
+        if (recording) gif.addFrame(ctx, { copy: true, delay: 100 });
+
+        animationFrame = requestAnimationFrame(animate);
+      }
+
+      // ----- GIF Recording -----
+      function startGifRecording() {
+        gif = new GIF({
+          workers: 2,
+          quality: 10,
+          width: canvas.width,
+          height: canvas.height,
+        });
+        recording = true;
+        alert("GIF recording started for 5 seconds");
+        setTimeout(finishGifRecording, 5000);
+      }
+      function finishGifRecording() {
+        if (!recording) return;
+        recording = false;
+        gif.on("finished", function (blob) {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "animation.gif";
+          a.click();
+        });
+        gif.render();
+      }
+    </script>
+  </body>
+</html>
